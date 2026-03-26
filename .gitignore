@@ -11,6 +11,7 @@
 .gradle
 .idea
 .secret
+bin
 build
 local.properties
 node_modules
