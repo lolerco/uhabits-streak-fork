@@ -375,4 +375,24 @@ class ListHabitsScreen
             }
         )
     }
+
+    fun showAddCategoryDialog() {
+        val builder = android.app.AlertDialog.Builder(context)
+        builder.setTitle(R.string.add_category_title)
+        builder.setMessage(R.string.add_category_message)
+        val input = android.widget.EditText(context)
+        input.inputType = android.text.InputType.TYPE_CLASS_TEXT
+        val padding = (16 * context.resources.displayMetrics.density).toInt()
+        input.setPadding(padding, padding, padding, padding)
+        builder.setView(input)
+        builder.setPositiveButton(android.R.string.ok) { _, _ ->
+            val name = input.text.toString().trim()
+            if (name.isNotEmpty()) {
+                preferences.addCategory(name)
+                adapter.refresh()
+            }
+        }
+        builder.setNegativeButton(android.R.string.cancel, null)
+        builder.show()
+    }
 }

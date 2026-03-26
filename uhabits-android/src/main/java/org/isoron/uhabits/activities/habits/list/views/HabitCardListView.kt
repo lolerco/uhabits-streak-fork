@@ -202,6 +202,10 @@ class HabitCardListView(
             recyclerView: RecyclerView,
             viewHolder: ViewHolder
         ): Int {
+            // Only allow dragging habit cards, not category headers
+            if (viewHolder is CategoryHeaderViewHolder) {
+                return makeMovementFlags(0, 0)
+            }
             return makeMovementFlags(UP or DOWN, START or END)
         }
 

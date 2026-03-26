@@ -22,6 +22,7 @@ package org.isoron.uhabits.activities.habits.list.views
 import dagger.Lazy
 import org.isoron.uhabits.activities.habits.list.ListHabitsSelectionMenu
 import org.isoron.uhabits.core.models.Habit
+import org.isoron.uhabits.core.models.HabitList
 import org.isoron.uhabits.core.models.ModelObservable
 import org.isoron.uhabits.core.ui.screens.habits.list.ListHabitsBehavior
 import org.isoron.uhabits.inject.ActivityScope
@@ -36,7 +37,8 @@ import javax.inject.Inject
 class HabitCardListController @Inject constructor(
     private val adapter: HabitCardListAdapter,
     private val behavior: ListHabitsBehavior,
-    private val selectionMenu: Lazy<ListHabitsSelectionMenu>
+    private val selectionMenu: Lazy<ListHabitsSelectionMenu>,
+    private val habitList: HabitList
 ) : HabitCardListView.Controller, ModelObservable.Listener {
 
     private var activeMode: Mode
@@ -49,6 +51,17 @@ class HabitCardListController @Inject constructor(
     override fun drop(from: Int, to: Int) {
         if (from == to) return
         cancelSelection()
+
+        // Check if the target is a category header
+        val targetCategory = adapter.getCategoryAt(to)
+        if (targetCategory != null) {
+            // Assign the habit to this category
+            val habitFrom = adapter.getItem(from) ?: return
+            habitFrom.category = targetCategory
+            habitList.update(habitFrom)
+            adapter.refresh()
+            return
+        }
 
         val habitFrom = adapter.getItem(from)
         val habitTo = adapter.getItem(to)

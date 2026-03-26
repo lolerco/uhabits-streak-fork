@@ -30,6 +30,9 @@
     <string name="archive">Archive</string>
     <string name="unarchive">Unarchive</string>
     <string name="add_habit">Add habit</string>
+    <string name="add_category">Add category</string>
+    <string name="add_category_title">New Category</string>
+    <string name="add_category_message">Enter a name for the new category:</string>
     <string name="color_picker_default_title">Change color</string>
     <string name="toast_habit_created">Habit created</string>
     <plurals name="toast_habits_changed">

@@ -251,6 +251,24 @@ open class Preferences(private val storage: Storage) {
             }
         }
 
+    var categories: Set<String>
+        get() {
+            val raw = storage.getString("pref_categories", "")
+            return if (raw.isEmpty()) emptySet()
+            else raw.split("\u0000").filter { it.isNotEmpty() }.toSet()
+        }
+        set(value) {
+            storage.putString("pref_categories", value.joinToString("\u0000"))
+        }
+
+    fun addCategory(name: String) {
+        categories = categories + name
+    }
+
+    fun removeCategory(name: String) {
+        categories = categories - name
+    }
+
     interface Listener {
         fun onCheckmarkSequenceChanged() {}
         fun onNotificationsChanged() {}

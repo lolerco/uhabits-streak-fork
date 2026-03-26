@@ -29,6 +29,12 @@
         android:title="@string/add_habit"
         app:showAsAction="always"/>
 
+    <item
+        android:id="@+id/actionAddCategory"
+        android:enabled="true"
+        android:title="@string/add_category"
+        app:showAsAction="never"/>
+
 
     <item
         android:id="@+id/action_filter"

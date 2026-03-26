@@ -32,6 +32,7 @@ import org.isoron.uhabits.core.ui.screens.habits.list.ListHabitsMenuBehavior
 import org.isoron.uhabits.inject.ActivityContext
 import org.isoron.uhabits.inject.ActivityScope
 import org.isoron.uhabits.utils.StyledResources
+import dagger.Lazy
 import javax.inject.Inject
 
 @ActivityScope
@@ -39,7 +40,8 @@ class ListHabitsMenu @Inject constructor(
     @ActivityContext context: Context,
     private val preferences: Preferences,
     private val themeSwitcher: ThemeSwitcher,
-    val behavior: ListHabitsMenuBehavior
+    val behavior: ListHabitsMenuBehavior,
+    private val screen: Lazy<ListHabitsScreen>
 ) {
     val activity = (context as AppCompatActivity)
 
@@ -91,6 +93,11 @@ class ListHabitsMenu @Inject constructor(
 
             R.id.actionCreateHabit -> {
                 behavior.onCreateHabit()
+                return true
+            }
+
+            R.id.actionAddCategory -> {
+                screen.get().showAddCategoryDialog()
                 return true
             }
 

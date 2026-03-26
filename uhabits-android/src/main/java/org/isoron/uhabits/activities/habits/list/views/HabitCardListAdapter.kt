@@ -37,23 +37,42 @@ import javax.inject.Inject
 /**
  * Provides data that backs a [HabitCardListView].
  *
- *
- * The data if fetched and cached by a [HabitCardListCache]. This adapter
- * also holds a list of items that have been selected.
+ * The data is fetched and cached by a [HabitCardListCache]. This adapter
+ * also holds a list of items that have been selected. It supports two view
+ * types: habit cards and category headers.
  */
 @ActivityScope
 class HabitCardListAdapter @Inject constructor(
     private val cache: HabitCardListCache,
     private val preferences: Preferences,
     private val midnightTimer: MidnightTimer
-) : RecyclerView.Adapter<HabitCardViewHolder?>(),
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>(),
     HabitCardListCache.Listener,
     MidnightTimer.MidnightListener,
     ListHabitsMenuBehavior.Adapter,
     ListHabitsSelectionMenuBehavior.Adapter {
+
     val observable: ModelObservable = ModelObservable()
     private var listView: HabitCardListView? = null
     val selected: LinkedList<Habit> = LinkedList()
+
+    companion object {
+        const val VIEW_TYPE_HABIT = 0
+        const val VIEW_TYPE_CATEGORY_HEADER = 1
+    }
+
+    /**
+     * Represents an item in the flattened display list —
+     * either a habit card or a category header.
+     */
+    sealed class DisplayItem {
+        data class HabitItem(val habit: Habit) : DisplayItem()
+        data class CategoryHeader(val categoryName: String) : DisplayItem()
+    }
+
+    /** The flattened display list, rebuilt whenever the cache changes. */
+    private var displayItems: List<DisplayItem> = emptyList()
+
     override fun atMidnight() {
         cache.refreshAllHabits()
     }
@@ -71,7 +90,6 @@ class HabitCardListAdapter @Inject constructor(
      */
     override fun clearSelection() {
         if (selected.isEmpty()) return
-
         selected.clear()
         notifyDataSetChanged()
         observable.notifyListeners()
@@ -82,28 +100,45 @@ class HabitCardListAdapter @Inject constructor(
     }
 
     /**
-     * Returns the item that occupies a certain position on the list
-     *
-     * @param position position of the item
-     * @return the item at given position or null if position is invalid
+     * Returns the habit at a given display position, or null if
+     * that position is a category header.
      */
     @Deprecated("")
     fun getItem(position: Int): Habit? {
-        return cache.getHabitByPosition(position)
+        if (position < 0 || position >= displayItems.size) return null
+        val item = displayItems[position]
+        return if (item is DisplayItem.HabitItem) item.habit else null
     }
 
-    override fun getItemCount(): Int {
-        return cache.habitCount
+    /**
+     * Returns the category name at a given display position, or null if
+     * that position is a habit card.
+     */
+    fun getCategoryAt(position: Int): String? {
+        if (position < 0 || position >= displayItems.size) return null
+        val item = displayItems[position]
+        return if (item is DisplayItem.CategoryHeader) item.categoryName else null
     }
+
+    override fun getItemCount(): Int = displayItems.size
 
     override fun getItemId(position: Int): Long {
-        return getItem(position)!!.id!!
+        val item = displayItems[position]
+        return when (item) {
+            is DisplayItem.HabitItem -> item.habit.id!!
+            is DisplayItem.CategoryHeader -> -(item.categoryName.hashCode().toLong() + 1)
+        }
+    }
+
+    override fun getItemViewType(position: Int): Int {
+        return when (displayItems[position]) {
+            is DisplayItem.HabitItem -> VIEW_TYPE_HABIT
+            is DisplayItem.CategoryHeader -> VIEW_TYPE_CATEGORY_HEADER
+        }
     }
 
     /**
      * Returns whether list of selected items is empty.
-     *
-     * @return true if selection is empty, false otherwise
      */
     val isSelectionEmpty: Boolean
         get() = selected.isEmpty()
@@ -119,32 +154,55 @@ class HabitCardListAdapter @Inject constructor(
     }
 
     override fun onBindViewHolder(
-        holder: HabitCardViewHolder,
+        holder: RecyclerView.ViewHolder,
         position: Int
     ) {
-        if (listView == null) return
-        val habit = cache.getHabitByPosition(position)
-        val score = cache.getScore(habit!!.id!!)
-        val checkmarks = cache.getCheckmarks(habit.id!!)
-        val notes = cache.getNotes(habit.id!!)
-        val selected = selected.contains(habit)
-        listView!!.bindCardView(holder, habit, score, checkmarks, notes, selected)
+        when (val item = displayItems[position]) {
+            is DisplayItem.HabitItem -> {
+                if (listView == null) return
+                val habit = item.habit
+                val score = cache.getScore(habit.id!!)
+                val checkmarks = cache.getCheckmarks(habit.id!!)
+                val notes = cache.getNotes(habit.id!!)
+                val isSelected = selected.contains(habit)
+                listView!!.bindCardView(
+                    holder as HabitCardViewHolder, habit, score, checkmarks, notes, isSelected
+                )
+            }
+            is DisplayItem.CategoryHeader -> {
+                val view = holder.itemView as CategoryHeaderView
+                view.categoryName = item.categoryName
+            }
+        }
     }
 
-    override fun onViewAttachedToWindow(holder: HabitCardViewHolder) {
-        listView!!.attachCardView(holder)
+    override fun onViewAttachedToWindow(holder: RecyclerView.ViewHolder) {
+        if (holder is HabitCardViewHolder) {
+            listView!!.attachCardView(holder)
+        }
     }
 
-    override fun onViewDetachedFromWindow(holder: HabitCardViewHolder) {
-        listView!!.detachCardView(holder)
+    override fun onViewDetachedFromWindow(holder: RecyclerView.ViewHolder) {
+        if (holder is HabitCardViewHolder) {
+            listView!!.detachCardView(holder)
+        }
     }
 
     override fun onCreateViewHolder(
         parent: ViewGroup,
         viewType: Int
-    ): HabitCardViewHolder {
-        val view = listView!!.createHabitCardView()
-        return HabitCardViewHolder(view)
+    ): RecyclerView.ViewHolder {
+        return when (viewType) {
+            VIEW_TYPE_HABIT -> {
+                val view = listView!!.createHabitCardView()
+                HabitCardViewHolder(view)
+            }
+            VIEW_TYPE_CATEGORY_HEADER -> {
+                val view = CategoryHeaderView(parent.context)
+                CategoryHeaderViewHolder(view)
+            }
+            else -> throw IllegalArgumentException("Unknown view type: $viewType")
+        }
     }
 
     /**
@@ -156,40 +214,30 @@ class HabitCardListAdapter @Inject constructor(
     }
 
     override fun onItemChanged(position: Int) {
-        notifyItemChanged(position)
-        observable.notifyListeners()
+        rebuildDisplayList()
     }
 
     override fun onItemInserted(position: Int) {
-        notifyItemInserted(position)
-        observable.notifyListeners()
+        rebuildDisplayList()
     }
 
     override fun onItemMoved(oldPosition: Int, newPosition: Int) {
-        notifyItemMoved(oldPosition, newPosition)
-        observable.notifyListeners()
+        rebuildDisplayList()
     }
 
     override fun onItemRemoved(position: Int) {
-        notifyItemRemoved(position)
-        observable.notifyListeners()
+        rebuildDisplayList()
     }
 
     override fun onRefreshFinished() {
-        observable.notifyListeners()
+        rebuildDisplayList()
     }
 
     /**
      * Removes a list of habits from the adapter.
      *
-     *
      * Note that this only has effect on the adapter cache. The database is not
-     * modified, and the change is lost when the cache is refreshed. This method
-     * is useful for making the ListView more responsive: while we wait for the
-     * database operation to finish, the cache can be modified to reflect the
-     * changes immediately.
-     *
-     * @param selected list of habits to be removed
+     * modified, and the change is lost when the cache is refreshed.
      */
     override fun performRemove(selected: List<Habit>) {
         for (habit in selected) cache.remove(habit.id!!)
@@ -198,18 +246,14 @@ class HabitCardListAdapter @Inject constructor(
     /**
      * Changes the order of habits on the adapter.
      *
-     *
      * Note that this only has effect on the adapter cache. The database is not
-     * modified, and the change is lost when the cache is refreshed. This method
-     * is useful for making the ListView more responsive: while we wait for the
-     * database operation to finish, the cache can be modified to reflect the
-     * changes immediately.
-     *
-     * @param from the habit that should be moved
-     * @param to   the habit that currently occupies the desired position
+     * modified, and the change is lost when the cache is refreshed.
      */
     fun performReorder(from: Int, to: Int) {
-        cache.reorder(from, to)
+        // Map display positions back to cache positions
+        val fromCachePos = displayPositionToCachePosition(from) ?: return
+        val toCachePos = displayPositionToCachePosition(to) ?: return
+        cache.reorder(fromCachePos, toCachePos)
     }
 
     override fun refresh() {
@@ -222,11 +266,6 @@ class HabitCardListAdapter @Inject constructor(
 
     /**
      * Sets the HabitCardListView that this adapter will provide data for.
-     *
-     *
-     * This object will be used to generated new HabitCardViews, upon demand.
-     *
-     * @param listView the HabitCardListView associated with this adapter
      */
     fun setListView(listView: HabitCardListView?) {
         this.listView = listView
@@ -248,14 +287,68 @@ class HabitCardListAdapter @Inject constructor(
 
     /**
      * Selects or deselects the item at a given position.
-     *
-     * @param position position of the item to be toggled
      */
     fun toggleSelection(position: Int) {
         val h = getItem(position) ?: return
         val k = selected.indexOf(h)
         if (k < 0) selected.add(h) else selected.remove(h)
         notifyDataSetChanged()
+    }
+
+    /**
+     * Rebuilds the flattened display list from the cache, grouping habits
+     * by category with headers between groups.
+     */
+    private fun rebuildDisplayList() {
+        val items = mutableListOf<DisplayItem>()
+        val habitCount = cache.habitCount
+
+        // Collect all habits from the cache
+        val allHabits = mutableListOf<Habit>()
+        for (i in 0 until habitCount) {
+            cache.getHabitByPosition(i)?.let { allHabits.add(it) }
+        }
+
+        // Group by category
+        val uncategorized = allHabits.filter { it.category.isEmpty() }
+        val categorized = allHabits.filter { it.category.isNotEmpty() }
+            .groupBy { it.category }
+
+        // All known categories (from preferences + from existing habits)
+        val habitCategories = categorized.keys
+        val prefCategories = preferences.categories
+        val allCategories = (habitCategories + prefCategories).sorted()
+
+        // Add uncategorized habits first (no header)
+        for (habit in uncategorized) {
+            items.add(DisplayItem.HabitItem(habit))
+        }
+
+        // Add each category with header
+        for (category in allCategories) {
+            items.add(DisplayItem.CategoryHeader(category))
+            categorized[category]?.forEach { habit ->
+                items.add(DisplayItem.HabitItem(habit))
+            }
+        }
+
+        displayItems = items
+        notifyDataSetChanged()
+        observable.notifyListeners()
+    }
+
+    /**
+     * Maps a display position to the corresponding cache position.
+     * Returns null if the display position is a category header.
+     */
+    private fun displayPositionToCachePosition(displayPosition: Int): Int? {
+        val item = displayItems.getOrNull(displayPosition) ?: return null
+        if (item !is DisplayItem.HabitItem) return null
+        // Find this habit's index in the cache
+        for (i in 0 until cache.habitCount) {
+            if (cache.getHabitByPosition(i) == item.habit) return i
+        }
+        return null
     }
 
     init {
